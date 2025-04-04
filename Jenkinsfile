@@ -1,5 +1,6 @@
 pipeline {
     agent any
+
     environment {
         AZURE_CREDENTIALS_ID = 'azure-service-principal'
         RESOURCE_GROUP = 'rg-jenkins-126'
@@ -13,44 +14,47 @@ pipeline {
             }
         }
 
-        stage('Setup Python') {
+        stage('Set Up Python Environment') {
             steps {
-                bat '"C:\\Users\\Harsh\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" --version'
+                bat '"C:\\Users\\Harsh\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" -m venv venv'
+                bat '.\\venv\\Scripts\\activate && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip'
+                bat '.\\venv\\Scripts\\activate && .\\venv\\Scripts\\python.exe -m pip install -r requirements.txt'
+                bat '.\\venv\\Scripts\\activate && .\\venv\\Scripts\\python.exe -m pip install pytest'
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Run Tests') {
             steps {
-                bat '"C:\\Users\\Harsh\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" -m pip install --upgrade pip'
-                bat '"C:\\Users\\Harsh\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" -m pip install -r requirements.txt'
+                bat '.\\venv\\Scripts\\activate && .\\venv\\Scripts\\python.exe -m pytest'
             }
         }
 
-        stage('Package Application') {
-            steps {
-                bat 'powershell.exe -Command "Compress-Archive -Path * -DestinationPath app.zip -Force"'
-            }
-        }
-
-        stage('Deploy to Azure') {
+        stage('Deploy') {
             steps {
                 withCredentials([azureServicePrincipal(credentialsId: AZURE_CREDENTIALS_ID)]) {
                     bat '''
-                        az login --service-principal -u %AZURE_CLIENT_ID% -p %AZURE_CLIENT_SECRET% --tenant %AZURE_TENANT_ID%
-                        az webapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %APP_SERVICE_NAME% --src app.zip
+                    if exist publish (rmdir /s /q publish)
+                    mkdir publish
+
+                    :: Copy .py files and requirements.txt to publish folder
+                    for %%f in (*.py) do copy "%%f" publish\\
+                    if exist requirements.txt copy requirements.txt publish\\
                     '''
+                    bat 'az login --service-principal -u %AZURE_CLIENT_ID% -p %AZURE_CLIENT_SECRET% --tenant %AZURE_TENANT_ID%'
+                    bat 'powershell Compress-Archive -Path ./publish/* -DestinationPath ./publish.zip -Force'
+                    bat 'az webapp deploy --resource-group %RESOURCE_GROUP% --name %APP_SERVICE_NAME% --src-path ./publish.zip --type zip'
                 }
             }
         }
     }
 
-       post {
-        success {
-            echo ' Deployment Successful!'
-        }
+    post {
         failure {
-            echo ' Deployment Failed!'
+            echo 'Deployment Failed!'
+        }
+        success {
+            echo 'Deployment Successful!'
         }
     }
-
 }
+Jenkinsfile
