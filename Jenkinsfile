@@ -57,4 +57,3 @@ pipeline {
         }
     }
 }
-Jenkinsfile
